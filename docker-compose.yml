@@ -20,7 +20,7 @@ services:
     restart: always
     ports:
       - "6379:6379"
-      
+
   server:
     build: ./server
     container_name: server
@@ -33,5 +33,14 @@ services:
       - NODE_ENV=development
       - DATABASE_URL=postgresql://admin:admin@postgres:5432/linkedin_sequencer
       - REDIS_URL=redis://redis:6379
+  
+  client:
+    build: ./client
+    container_name: client
+    ports:
+      - "3000:3000"
+    depends_on:
+      - server
+  
 volumes:
   postgres_data:
