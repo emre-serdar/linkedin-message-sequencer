@@ -41,6 +41,13 @@ services:
       - "3000:3000"
     depends_on:
       - server
+
+  worker:
+    build: ./worker
+    container_name: worker
+    depends_on:
+      - redis
+
   
 volumes:
   postgres_data:
