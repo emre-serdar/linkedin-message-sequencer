@@ -3,6 +3,7 @@ const path = require('path');
 const { parse } = require('csv-parse');
 const axios = require('axios');
 const { Pool } = require('pg');
+const messageQueue = require('../queues/messageQueue');
 require('dotenv').config();
 
 // PostgreSQL connection pool
@@ -131,8 +132,46 @@ exports.createCampaign = async (req, res) => {
       }
 
       console.log(`✅ Campaign and ${validatedProspects.length} prospects inserted for campaign ID ${campaignId}.`);
-
+      
       res.status(200).json({ message: 'Campaign created successfully!', campaignId });
+
+      // Insert sequence steps
+      for (const step of sequenceSteps) {
+        const { stepOrder, messageTemplate, delayHours } = step;
+
+        await pool.query(
+          'INSERT INTO sequence_steps (campaign_id, step_order, message_template, delay_hours) VALUES ($1, $2, $3, $4)',
+          [campaignId, stepOrder, messageTemplate, delayHours]
+        );
+      }
+
+      // ✅ After database insertions, enqueue jobs into Redis
+      for (const prospect of validatedProspects) {
+        for (const step of sequenceSteps) {
+          const delayMilliseconds = step.delayHours * 60 * 60 * 1000; // Convert hours to milliseconds
+
+          await messageQueue.add('send-linkedin-message', {
+            campaignId: campaignId,
+            prospect: {
+              firstName: prospect.firstName,
+              lastName: prospect.lastName,
+              profileUrl: prospect.profileUrl,
+              company: prospect.company,
+            },
+            step: {
+              stepOrder: step.stepOrder,
+              messageTemplate: step.messageTemplate,
+            },
+          }, {
+            delay: delayMilliseconds,
+            removeOnComplete: true,
+            removeOnFail: true,
+          });
+
+          console.log(`✅ Enqueued job for ${prospect.firstName} ${prospect.lastName} - Step ${step.stepOrder}`);
+        }
+      }
+      
     });
 
   } catch (error) {
