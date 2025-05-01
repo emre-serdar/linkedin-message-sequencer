@@ -120,7 +120,7 @@ exports.createCampaign = async (req, res) => {
           [firstName, lastName, profileUrl, company || null, campaignId]
         );
       }
-      
+
       // Insert sequence steps
       for (const step of sequenceSteps) {
         const { stepOrder, messageTemplate, delayHours } = step;
@@ -131,18 +131,20 @@ exports.createCampaign = async (req, res) => {
         );
       }
 
-      console.log(`✅ Campaign and ${validatedProspects.length} prospects inserted for campaign ID ${campaignId}.`);
-      
-      res.status(200).json({ message: 'Campaign created successfully!', campaignId });
-
-      // Insert sequence steps
-      for (const step of sequenceSteps) {
-        const { stepOrder, messageTemplate, delayHours } = step;
-
-        await pool.query(
-          'INSERT INTO sequence_steps (campaign_id, step_order, message_template, delay_hours) VALUES ($1, $2, $3, $4)',
-          [campaignId, stepOrder, messageTemplate, delayHours]
-        );
+      // Insert initial PENDING deliveries
+      for (const prospect of validatedProspects) {
+        for (const step of sequenceSteps) {
+          await pool.query(
+            `INSERT INTO deliveries (campaign_id, prospect_id, sequence_step_id, status)
+             VALUES (
+               $1,
+               (SELECT id FROM prospects WHERE profile_url = $2 LIMIT 1),
+               (SELECT id FROM sequence_steps WHERE campaign_id = $1 AND step_order = $3 LIMIT 1),
+               'PENDING'
+             )`,
+            [campaignId, prospect.profileUrl, step.stepOrder]
+          );
+        }
       }
 
       // ✅ After database insertions, enqueue jobs into Redis
@@ -150,32 +152,82 @@ exports.createCampaign = async (req, res) => {
         for (const step of sequenceSteps) {
           const delayMilliseconds = step.delayHours * 60 * 60 * 1000; // Convert hours to milliseconds
 
-          await messageQueue.add('send-linkedin-message', {
-            campaignId: campaignId,
-            prospect: {
-              firstName: prospect.firstName,
-              lastName: prospect.lastName,
-              profileUrl: prospect.profileUrl,
-              company: prospect.company,
+          await messageQueue.add(
+            'send-linkedin-message',
+            {
+              campaignId,
+              prospect,
+              step,
             },
-            step: {
-              stepOrder: step.stepOrder,
-              messageTemplate: step.messageTemplate,
-            },
-          }, {
-            delay: delayMilliseconds,
-            removeOnComplete: true,
-            removeOnFail: true,
-          });
+            {
+              delay: delayMilliseconds,
+              removeOnComplete: true,
+              removeOnFail: true,
+            }
+          );
 
           console.log(`✅ Enqueued job for ${prospect.firstName} ${prospect.lastName} - Step ${step.stepOrder}`);
         }
       }
-      
+
+      console.log(`✅ Campaign and ${validatedProspects.length} prospects inserted for campaign ID ${campaignId}.`);
+      res.status(200).json({ message: 'Campaign created successfully!', campaignId });
+
     });
 
   } catch (error) {
     console.error('❌ Error in createCampaign:', error);
     res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+// Controller to get ALL jobs from the database with enriched info
+exports.getJobs = async (req, res) => {
+  const { Pool } = require("pg");
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+  });
+
+  try {
+    const result = await pool.query(`
+      SELECT 
+        d.id,
+        p.first_name AS prospectFirstName,
+        p.last_name AS prospectLastName,
+        p.profile_url,
+        ss.step_order AS stepOrder,
+        d.status,
+        d.created_at,
+        ss.delay_hours,
+        d.campaign_id
+      FROM deliveries d
+      JOIN prospects p ON d.prospect_id = p.id
+      JOIN sequence_steps ss ON d.sequence_step_id = ss.id
+      ORDER BY d.created_at DESC
+    `);
+
+    const now = Date.now();
+
+    const jobs = result.rows.map((row) => {
+      const scheduledTime = new Date(new Date(row.created_at).getTime() + row.delay_hours * 60 * 60 * 1000);
+      const remainingMinutes = Math.max(0, Math.floor((scheduledTime.getTime() - now) / 60000));
+
+      return {
+        id: row.id,
+        prospectFirstName: row.prospectfirstname,
+        prospectLastName: row.prospectlastname,
+        profileUrl: row.profile_url,
+        stepOrder: row.steporder,
+        scheduledExecution: scheduledTime.toISOString(),
+        remainingMinutes,
+        status: row.status,
+        campaignId: row.campaign_id,
+      };
+    });
+
+    res.status(200).json({ jobs });
+  } catch (error) {
+    console.error("Error fetching jobs:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 };

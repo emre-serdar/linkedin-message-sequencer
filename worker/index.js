@@ -23,32 +23,56 @@ const worker = new Worker('message-queue', async (job) => {
   console.log(`📨 Processing message for ${prospect.firstName} ${prospect.lastName}, step ${step.stepOrder}`);
 
   try {
-    // Simulate sending message (in reality, you'd call LinkedIn API or a mock API)
+    // Simulate sending message (in reality, call LinkedIn API or mock API)
     const personalizedMessage = step.messageTemplate.replace('{{firstName}}', prospect.firstName);
 
     console.log(`📝 Sending message: "${personalizedMessage}" to ${prospect.profileUrl}`);
 
-    // Insert delivery record into the database
-    await pool.query(
-      `INSERT INTO deliveries (campaign_id, prospect_id, sequence_step_id, status)
-       VALUES (
-         $1,
-         (SELECT id FROM prospects WHERE profile_url = $2 LIMIT 1),
-         (SELECT id FROM sequence_steps WHERE campaign_id = $1 AND step_order = $3 LIMIT 1),
-         'SENT'
-       )`,
+    // Step 1: Find delivery record (it should exist with status PENDING)
+    const deliveryResult = await pool.query(
+      `SELECT id FROM deliveries
+       WHERE campaign_id = $1
+         AND prospect_id = (SELECT id FROM prospects WHERE profile_url = $2 LIMIT 1)
+         AND sequence_step_id = (SELECT id FROM sequence_steps WHERE campaign_id = $1 AND step_order = $3 LIMIT 1)
+       LIMIT 1`,
       [campaignId, prospect.profileUrl, step.stepOrder]
     );
 
-    console.log(`✅ Delivery logged for ${prospect.firstName} ${prospect.lastName}`);
+    if (deliveryResult.rows.length === 0) {
+      throw new Error('Delivery record not found.');
+    }
+
+    const deliveryId = deliveryResult.rows[0].id;
+
+    // Step 2: Update delivery status from PENDING → SENT
+    await pool.query(
+      `UPDATE deliveries SET status = 'SENT' WHERE id = $1`,
+      [deliveryId]
+    );
+
+    console.log(`✅ Delivery marked as SENT for ${prospect.firstName} ${prospect.lastName}`);
+
+    // Step 3: Simulate reply tracking (30% chance of reply)
+    const replied = Math.random() < 0.3;
+
+    if (replied) {
+      console.log(`💬 ${prospect.firstName} ${prospect.lastName} replied!`);
+
+      // Mark all future deliveries for this prospect as STOPPED
+      await pool.query(
+        `UPDATE deliveries
+         SET status = 'STOPPED'
+         WHERE campaign_id = $1
+           AND prospect_id = (SELECT id FROM prospects WHERE profile_url = $2 LIMIT 1)
+           AND id != $3
+           AND status = 'PENDING'`,
+        [campaignId, prospect.profileUrl, deliveryId]
+      );
+    }
 
     return true;
   } catch (error) {
     console.error('❌ Error processing job:', error);
-
-    // You can optionally update status to FAILED in deliveries table
-    // (nice-to-have, not urgent for MVP)
-
     throw error; // Re-throw so BullMQ knows this job failed
   }
 }, {
