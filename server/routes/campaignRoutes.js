@@ -1,16 +1,21 @@
 const express = require('express');
 const multer = require('multer');
-const upload = multer({ dest: 'uploads/' }); // temporary local storage for CSV
+const upload = multer({ dest: 'uploads/' });
 
 const router = express.Router();
 
 // Import controllers
-const { createCampaign, getJobs } = require('../controller/campaignController');
+const {
+  createCampaign,
+  getJobs,
+  mockReply, // <- add this
+} = require('../controller/campaignController');
 
-// Create Campaign Route
+// Routes
 router.post('/api/create-campaign', upload.single('prospectsCsv'), createCampaign);
-
-// Route: Jobs
 router.get('/api/jobs', getJobs);
+
+// route to simulate reply
+router.post('/api/reply/:deliveryId', mockReply);
 
 module.exports = router;
