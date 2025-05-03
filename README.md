@@ -10,8 +10,8 @@ The **LinkedIn Message Sequencer** is a full-stack, containerized outreach autom
 
 | Layer        | Tech Stack                        | Description                                                                 |
 |--------------|------------------------------------|-----------------------------------------------------------------------------|
-| Frontend     | Next.js + TailwindCSS + TypeScript| Prospect upload, message sequence builder, and delivery dashboard          |
-| Backend API  | Express.js                         | Campaign creation, mock login, DB ops, delivery tracking                   |
+| Frontend     | Next.js + TailwindCSS + TypeScript| Prospect upload, message sequence builder, and delivery dashboard           | 
+| Backend API  | Express.js                         | Mock auth, sequence management, job scheduling, and database interactions. |                 
 | Worker       | BullMQ + Redis                     | Schedules and sends messages based on delay per step (mocked logic)        |
 | Database     | PostgreSQL                         | Stores campaigns, steps, prospects, delivery status, reply events          |
 | Queue        | Redis                              | Manages delayed job scheduling and cancellation logic                      |
@@ -27,6 +27,37 @@ The **LinkedIn Message Sequencer** is a full-stack, containerized outreach autom
 - **Reply Simulation**: Stops all future messages to a prospect when they reply (with Redis & DB sync)
 - **Status Dashboard**: View all jobs with real-time countdowns and status (PENDING, SENT, REPLIED, STOPPED)
 - **Containerized Stack**: One-line setup via `docker-compose up`
+
+---
+
+## 📦 How BullMQ Works (Job Queue Logic)
+
+This project uses [BullMQ](https://docs.bullmq.io/) as the background job queue engine, powered by Redis.
+
+- **Where It’s Used**:
+  - Jobs are scheduled in the **Backend (server/)** via `messageQueue.add()` when a campaign is created.
+  - Jobs are processed in the **Worker (worker/)** by listening to the Redis queue using `queue.process()`.
+
+- **Delay Scheduling**:
+  - Each message step has a custom delay (in hours).
+  - BullMQ queues the job with a `delay` based on this delay time.
+  - Redis holds the job in a special delayed queue until it's due, and then moves it to the waiting queue.
+
+- **Real-Time Simulation**:
+  - Once due, the Worker executes the job (e.g., logging or simulating message sending).
+  - If the prospect replies, future steps are automatically stopped — both in **PostgreSQL** and in **Redis**, using `job.remove()`.
+
+- **Why BullMQ**:
+  - It offers fine-grained control over delay, retries, concurrency, and job management.
+  - Easily extendable if you switch to real APIs, rate limits, or need persistent job tracking across failures.
+
+---
+
+## Git Workflow Strategy
+
+- **Main Branch**: Production-ready, deployable code.
+- **Develop Branch**: Active development branch for building and testing features.
+- **Feature Branches (optional)**: In a real-world team scenario, feature-specific branches like `feature/campaign-upload` would be created off `develop` for isolated development and cleaner pull requests. For this trial project, direct work into `develop` is acceptable for simplicity.
 
 ---
 
@@ -107,6 +138,24 @@ Access:
 ```
 
 ---
+
+## Initial Setup Plan
+
+1. Set up Docker Compose to orchestrate PostgreSQL, Redis, Client, Server, and Worker containers.
+2. Bootstrap Express backend and Next.js frontend.
+3. Build core functionality:
+   - Mock LinkedIn authentication flow.
+   - CSV prospect upload and Zod-based validation.
+   - Sequence builder to define multi-step messaging plans.
+   - Background job scheduling with BullMQ and robust rate-limiting logic.
+   - Dashboard to monitor messaging status and replies.
+4. Deployment Plan:
+   - All services (backend, frontend, worker, Redis, PostgreSQL) will be containerized.
+   - The full system will be deployed into a **single AWS EC2 instance** using **Docker Compose**.
+   - Vercel deployment for the frontend **may** be considered additionally if time permits.
+5. Documentation:
+   - Prepare architecture diagrams and technical explanations in the final README.
+   - Explain real-world LinkedIn Graph API integration possibilities (separate section below).
 
 ## 🙋 Author
 
