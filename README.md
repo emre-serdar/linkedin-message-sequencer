@@ -32,63 +32,50 @@ The **LinkedIn Message Sequencer** is a full-stack, containerized outreach autom
 
 ## 🔐 Real-World LinkedIn API Integration Plan
 
-Due to API access restrictions, this project uses **mock authentication** and **simulated messaging**. Here's how it would be adapted for production using LinkedIn’s official APIs:
+### 🔐 LinkedIn Login – Real Scenario
 
-### 1. **Sign In with LinkedIn**
-> 📚 [LinkedIn OAuth 2.0 (3-legged flow)](https://learn.microsoft.com/en-us/linkedin/shared/authentication/authentication)
+- Use [3-legged OAuth 2.0](https://learn.microsoft.com/en-us/linkedin/shared/authentication/authentication) to let users authenticate via LinkedIn.
+- After the user grants permission, exchange the authorization code for an access token.
+- Use the access token to fetch profile information:
+  - `GET https://api.linkedin.com/v2/me`
+  - `GET https://api.linkedin.com/v2/emailAddress?q=members&projection=(elements*(handle~))`
+- Required permission scopes:
+  - `r_liteprofile` – retrieve first name, last name, profile image
+  - `r_emailaddress` – retrieve verified email address
 
-- Use **OpenID Connect** + **r_liteprofile** + **r_emailaddress** scopes.
-- After user consents, retrieve access token and use it for:
-  - LinkedIn Profile (`GET /v2/me`)
-  - Email Address (`GET /v2/emailAddress?q=members&projection=(elements*(handle~))`)
+### ✉️ LinkedIn Messages API – Real Scenario
 
-#### Example:
-```http
-GET https://api.linkedin.com/v2/me
-Authorization: Bearer {access_token}
-```
-
----
-
-### 2. **LinkedIn Messaging API**
-> 📚 [LinkedIn Messages API Overview](https://learn.microsoft.com/en-us/linkedin/shared/integrations/communications/messages)
-
-**✅ What’s Possible with Approval**:
-- Send messages to 1st-degree connections
-- Reply to ongoing threads
-- Attach media via digital asset uploads
-
-**🚫 Limitations**:
-- Must be tied to user’s direct interaction (e.g., click to confirm/send)
-- Cannot send automated or scheduled messages
-- Requires message drafts to be editable by users
-- Requires LinkedIn Partner access
-
-#### Sample Request:
-```json
-POST https://api.linkedin.com/v2/messages
-{
-  "recipients": ["urn:li:person:123ABC"],
-  "body": "Hi there! 👋",
-  "messageType": "MEMBER_TO_MEMBER"
-}
-```
+- Use [LinkedIn Messages API](https://learn.microsoft.com/en-us/linkedin/shared/integrations/communications/messages) to send messages to first-degree connections.
+- Messages must comply with strict LinkedIn messaging rules:
+  - **User-initiated**: Must be triggered by a specific member action.
+  - **User approval**: Members must see and confirm/edit message before sending.
+  - **No incentives**: Messages must not offer rewards.
+  - **Plain text only**: No HTML is allowed in the message body.
+- Send a new message:
+  ```http
+  POST https://api.linkedin.com/v2/messages
+  Authorization: Bearer {access_token}
+  {
+    "recipients": ["urn:li:person:abc123"],
+    "body": "Hello! This is a demo message.",
+    "messageType": "MEMBER_TO_MEMBER"
+  }
+  ```
+- Partner permissions required: `w_member_messages`
 
 ---
 
 ## 🛠 Future Enhancements
-
-If full LinkedIn API access becomes available, here’s how this project could evolve:
 
 | Feature                      | Update Plan                                                                 |
 |-----------------------------|------------------------------------------------------------------------------|
 | **Authentication**          | Replace mock login with 3-legged OAuth using `Sign in with LinkedIn`        |
 | **Messaging**               | Replace backend/worker queue with real-time UI confirmation via API         |
 | **Rate Limiting**           | Use BullMQ rate-limiting + API token quotas                                 |
-| **Attachment Support**      | Use `assets?action=registerUpload` → upload image/media → use in messages   |
-| **Compliance Monitoring**   | Use LinkedIn’s [Compliance Events API] to track messaging activity          |
-| **Access Control & Teams**  | Multi-user dashboard with user-specific tokens and permissions              |
-| **CI/CD & Testing**         | Integrate Jest and Supertest + deploy via GitHub Actions to AWS             |
+| **Attachment Support**      | Use `assets?action=registerUpload` → upload media → send in message         |
+| **Compliance Monitoring**   | Use Compliance Events API to track real user activities                     |
+| **Multi-User Support**      | Dashboard with token-based auth per user/team                               |
+| **CI/CD & Testing**         | Add Jest, Supertest, GitHub Actions + EC2/Vercel deploy                     |
 
 ---
 
@@ -119,6 +106,7 @@ Access:
 └── README.md             # This file
 ```
 
+---
 
 ## 🙋 Author
 
