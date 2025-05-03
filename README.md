@@ -1,52 +1,126 @@
 # LinkedIn Message Sequencer
 
-## Project Overview
+## 🔍 Overview
 
-This project is a LinkedIn Message Sequencer tool for automating the outreach process based on scheduled messaging sequences. Users can upload prospects via CSV, build a multi-step messaging sequence, and track sending statuses.
-
-Since real LinkedIn messaging API access is highly restricted to partners, this project uses a mocked login and messaging flow to simulate real behavior while focusing on system architecture, background processing, and safe rate-limited scheduling.
+The **LinkedIn Message Sequencer** is a full-stack, containerized outreach automation tool that simulates personalized LinkedIn message campaigns using scheduled steps. While current message delivery and authentication are mocked (due to LinkedIn’s API restrictions), the system is structured in a way that it could be extended to use LinkedIn’s official Messaging and Sign-In APIs with minimal changes to the architecture.
 
 ---
 
-## Planned System Architecture
+## ⚙️ Architecture
 
-- **Frontend (client/)**: Next.js app for prospect upload, sequence builder, and dashboard.
-- **Backend (server/)**: Express.js API server for authentication mock, sequence management, job scheduling, and database interactions.
-- **Worker (worker/)**: BullMQ-based worker service to process background messaging jobs with strict rate limits.
-- **Database**: PostgreSQL for structured storage (prospects, campaigns, sequences, statuses).
-- **Queue Manager**: Redis with persistence enabled for job management and retry safety.
-- **Containerization**: Docker and Docker Compose to manage all services locally and for production deployment.
-
----
-
-## Git Workflow Strategy
-
-- **Main Branch**: Production-ready, deployable code.
-- **Develop Branch**: Active development branch for building and testing features.
-- **Feature Branches (optional)**: In a real-world team scenario, feature-specific branches like `feature/campaign-upload` would be created off `develop` for isolated development and cleaner pull requests. For this trial project, direct work into `develop` is acceptable for simplicity.
+| Layer        | Tech Stack                        | Description                                                                 |
+|--------------|------------------------------------|-----------------------------------------------------------------------------|
+| Frontend     | Next.js + TailwindCSS + TypeScript| Prospect upload, message sequence builder, and delivery dashboard          |
+| Backend API  | Express.js                         | Campaign creation, mock login, DB ops, delivery tracking                   |
+| Worker       | BullMQ + Redis                     | Schedules and sends messages based on delay per step (mocked logic)        |
+| Database     | PostgreSQL                         | Stores campaigns, steps, prospects, delivery status, reply events          |
+| Queue        | Redis                              | Manages delayed job scheduling and cancellation logic                      |
+| DevOps       | Docker Compose                     | All services run in isolated containers, local-first setup                 |
 
 ---
 
-## Initial Setup Plan
+## ✅ Features
 
-1. Set up Docker Compose to orchestrate PostgreSQL, Redis, Client, Server, and Worker containers.
-2. Bootstrap Express backend and Next.js frontend.
-3. Build core functionality:
-   - Mock LinkedIn authentication flow.
-   - CSV prospect upload and Zod-based validation.
-   - Sequence builder to define multi-step messaging plans.
-   - Background job scheduling with BullMQ and robust rate-limiting logic.
-   - Dashboard to monitor messaging status and replies.
-4. Deployment Plan:
-   - All services (backend, frontend, worker, Redis, PostgreSQL) will be containerized.
-   - The full system will be deployed into a **single AWS EC2 instance** using **Docker Compose**.
-   - Vercel deployment for the frontend **may** be considered additionally if time permits.
-5. Documentation:
-   - Prepare architecture diagrams and technical explanations in the final README.
-   - Explain real-world LinkedIn Graph API integration possibilities (separate section).
+- **CSV Upload & Validation**: Upload prospect lists and validate LinkedIn profile URLs
+- **Sequence Builder**: Define a series of message steps with custom delays
+- **Message Scheduling**: Delivers messages at future times via Redis-based job queues
+- **Reply Simulation**: Stops all future messages to a prospect when they reply (with Redis & DB sync)
+- **Status Dashboard**: View all jobs with real-time countdowns and status (PENDING, SENT, REPLIED, STOPPED)
+- **Containerized Stack**: One-line setup via `docker-compose up`
 
 ---
 
-✅ Repository initialized.  
-✅ Development actively progressing on the `develop` branch.
+## 🔐 Real-World LinkedIn API Integration Plan
 
+Due to API access restrictions, this project uses **mock authentication** and **simulated messaging**. Here's how it would be adapted for production using LinkedIn’s official APIs:
+
+### 1. **Sign In with LinkedIn**
+> 📚 [LinkedIn OAuth 2.0 (3-legged flow)](https://learn.microsoft.com/en-us/linkedin/shared/authentication/authentication)
+
+- Use **OpenID Connect** + **r_liteprofile** + **r_emailaddress** scopes.
+- After user consents, retrieve access token and use it for:
+  - LinkedIn Profile (`GET /v2/me`)
+  - Email Address (`GET /v2/emailAddress?q=members&projection=(elements*(handle~))`)
+
+#### Example:
+```http
+GET https://api.linkedin.com/v2/me
+Authorization: Bearer {access_token}
+```
+
+---
+
+### 2. **LinkedIn Messaging API**
+> 📚 [LinkedIn Messages API Overview](https://learn.microsoft.com/en-us/linkedin/shared/integrations/communications/messages)
+
+**✅ What’s Possible with Approval**:
+- Send messages to 1st-degree connections
+- Reply to ongoing threads
+- Attach media via digital asset uploads
+
+**🚫 Limitations**:
+- Must be tied to user’s direct interaction (e.g., click to confirm/send)
+- Cannot send automated or scheduled messages
+- Requires message drafts to be editable by users
+- Requires LinkedIn Partner access
+
+#### Sample Request:
+```json
+POST https://api.linkedin.com/v2/messages
+{
+  "recipients": ["urn:li:person:123ABC"],
+  "body": "Hi there! 👋",
+  "messageType": "MEMBER_TO_MEMBER"
+}
+```
+
+---
+
+## 🛠 Future Enhancements
+
+If full LinkedIn API access becomes available, here’s how this project could evolve:
+
+| Feature                      | Update Plan                                                                 |
+|-----------------------------|------------------------------------------------------------------------------|
+| **Authentication**          | Replace mock login with 3-legged OAuth using `Sign in with LinkedIn`        |
+| **Messaging**               | Replace backend/worker queue with real-time UI confirmation via API         |
+| **Rate Limiting**           | Use BullMQ rate-limiting + API token quotas                                 |
+| **Attachment Support**      | Use `assets?action=registerUpload` → upload image/media → use in messages   |
+| **Compliance Monitoring**   | Use LinkedIn’s [Compliance Events API] to track messaging activity          |
+| **Access Control & Teams**  | Multi-user dashboard with user-specific tokens and permissions              |
+| **CI/CD & Testing**         | Integrate Jest and Supertest + deploy via GitHub Actions to AWS             |
+
+---
+
+## 🧪 Local Setup
+
+```bash
+git clone https://github.com/emre-serdar/linkedin-sequencer
+cd linkedin-sequencer
+docker-compose up --build
+```
+
+Access:
+- Frontend → `http://localhost:3000`
+- Backend API → `http://localhost:4000/api`
+- Redis & Postgres auto-managed in containers
+
+---
+
+## 📂 Project Structure
+
+```
+.
+├── client/               # Frontend - Next.js
+├── server/               # Backend - Express API
+├── worker/               # Background worker - BullMQ
+├── docker-compose.yml    # Full stack container config
+├── LICENSE               # Emre’s custom license
+└── README.md             # This file
+```
+
+
+## 🙋 Author
+
+**Emre Serdar**  
+🌐 [www.emreserdar.com](http://www.emreserdar.com)
