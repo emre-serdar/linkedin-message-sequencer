@@ -10,8 +10,8 @@ The **LinkedIn Message Sequencer** is a full-stack, containerized outreach autom
 
 | Layer        | Tech Stack                        | Description                                                                 |
 |--------------|------------------------------------|-----------------------------------------------------------------------------|
-| Frontend     | Next.js + TailwindCSS + TypeScript| Prospect upload, message sequence builder, and delivery dashboard           | 
-| Backend API  | Express.js                         | Mock auth, sequence management, job scheduling, and database interactions. |                 
+| Frontend     | Next.js + TailwindCSS + TypeScript| Prospect upload, message sequence builder, and delivery dashboard          |
+| Backend API  | Express.js                         | Campaign creation, mock login, DB ops, delivery tracking                   |
 | Worker       | BullMQ + Redis                     | Schedules and sends messages based on delay per step (mocked logic)        |
 | Database     | PostgreSQL                         | Stores campaigns, steps, prospects, delivery status, reply events          |
 | Queue        | Redis                              | Manages delayed job scheduling and cancellation logic                      |
@@ -30,83 +30,54 @@ The **LinkedIn Message Sequencer** is a full-stack, containerized outreach autom
 
 ---
 
-## 📦 How BullMQ Works (Job Queue Logic)
-
-This project uses [BullMQ](https://docs.bullmq.io/) as the background job queue engine, powered by Redis.
-
-- **Where It’s Used**:
-  - Jobs are scheduled in the **Backend (server/)** via `messageQueue.add()` when a campaign is created.
-  - Jobs are processed in the **Worker (worker/)** by listening to the Redis queue using `queue.process()`.
-
-- **Delay Scheduling**:
-  - Each message step has a custom delay (in hours).
-  - BullMQ queues the job with a `delay` based on this delay time.
-  - Redis holds the job in a special delayed queue until it's due, and then moves it to the waiting queue.
-
-- **Real-Time Simulation**:
-  - Once due, the Worker executes the job (e.g., logging or simulating message sending).
-  - If the prospect replies, future steps are automatically stopped — both in **PostgreSQL** and in **Redis**, using `job.remove()`.
-
-- **Why BullMQ**:
-  - It offers fine-grained control over delay, retries, concurrency, and job management.
-  - Easily extendable if you switch to real APIs, rate limits, or need persistent job tracking across failures.
-
----
-
-## Git Workflow Strategy
-
-- **Main Branch**: Production-ready, deployable code.
-- **Develop Branch**: Active development branch for building and testing features.
-- **Feature Branches (optional)**: In a real-world team scenario, feature-specific branches like `feature/campaign-upload` would be created off `develop` for isolated development and cleaner pull requests. For this trial project, direct work into `develop` is acceptable for simplicity.
-
----
-
 ## 🔐 Real-World LinkedIn API Integration Plan
+
+This project is currently built with mock flows, but it's designed to be **directly compatible** with LinkedIn’s official APIs. Here’s how:
 
 ### 🔐 LinkedIn Login – Real Scenario
 
-- Use [3-legged OAuth 2.0](https://learn.microsoft.com/en-us/linkedin/shared/authentication/authentication) to let users authenticate via LinkedIn.
-- After the user grants permission, exchange the authorization code for an access token.
-- Use the access token to fetch profile information:
-  - `GET https://api.linkedin.com/v2/me`
-  - `GET https://api.linkedin.com/v2/emailAddress?q=members&projection=(elements*(handle~))`
-- Required permission scopes:
-  - `r_liteprofile` – retrieve first name, last name, profile image
-  - `r_emailaddress` – retrieve verified email address
+- LinkedIn has deprecated "Sign in with LinkedIn" in favor of **OpenID Connect**.
+- Follow the [LinkedIn OAuth 2.0](https://learn.microsoft.com/en-us/linkedin/shared/authentication/authentication) flow:
+  - Initiate 3-legged OAuth with scopes: `r_liteprofile`, `r_emailaddress`
+  - User authenticates and consents, then you exchange the authorization code for an access token.
+  - With the token, retrieve member details via:
+    - `GET https://api.linkedin.com/v2/me` (returns id, firstName, lastName, profilePicture)
+    - `GET https://api.linkedin.com/v2/emailAddress?q=members&projection=(elements*(handle~))`
+- These endpoints provide all necessary identity data for sign-in and personalization.
 
 ### ✉️ LinkedIn Messages API – Real Scenario
 
-- Use [LinkedIn Messages API](https://learn.microsoft.com/en-us/linkedin/shared/integrations/communications/messages) to send messages to first-degree connections.
-- Messages must comply with strict LinkedIn messaging rules:
-  - **User-initiated**: Must be triggered by a specific member action.
-  - **User approval**: Members must see and confirm/edit message before sending.
-  - **No incentives**: Messages must not offer rewards.
-  - **Plain text only**: No HTML is allowed in the message body.
-- Send a new message:
+- Use [Messages API](https://learn.microsoft.com/en-us/linkedin/shared/integrations/communications/messages) to send actual messages.
+- Strict compliance rules apply:
+  - Message **must be user-initiated** (not pre-scheduled).
+  - Member must be presented with a **draft** and **manually send** the message.
+  - HTML is not supported; plain text only.
+- To send a message:
   ```http
   POST https://api.linkedin.com/v2/messages
   Authorization: Bearer {access_token}
   {
     "recipients": ["urn:li:person:abc123"],
-    "body": "Hello! This is a demo message.",
+    "body": "Hello!",
     "messageType": "MEMBER_TO_MEMBER"
   }
   ```
-- Partner permissions required: `w_member_messages`
+- Real integration requires elevated permissions (`w_member_messages`) granted via LinkedIn Partner Program.
+
+### 🧠 Developer Note
+
+This tool is currently operating with mock login and message delivery, but thanks to the modular backend design, real LinkedIn OAuth login and messaging can be integrated with minimal refactor. The `worker/` folder's BullMQ logic is queue-agnostic and easily extendable to external messaging APIs.
 
 ---
 
-## 🛠 Future Enhancements
+## 🛠 How BullMQ Works in This System
 
-| Feature                      | Update Plan                                                                 |
-|-----------------------------|------------------------------------------------------------------------------|
-| **Authentication**          | Replace mock login with 3-legged OAuth using `Sign in with LinkedIn`        |
-| **Messaging**               | Replace backend/worker queue with real-time UI confirmation via API         |
-| **Rate Limiting**           | Use BullMQ rate-limiting + API token quotas                                 |
-| **Attachment Support**      | Use `assets?action=registerUpload` → upload media → send in message         |
-| **Compliance Monitoring**   | Use Compliance Events API to track real user activities                     |
-| **Multi-User Support**      | Dashboard with token-based auth per user/team                               |
-| **CI/CD & Testing**         | Add Jest, Supertest, GitHub Actions + EC2/Vercel deploy                     |
+- **Job Creation**: When a campaign is created, each message step is scheduled as a delayed job using BullMQ's `.add()` method with a `delay` option.
+- **Worker Execution**: The `worker/` service consumes the `send-linkedin-message` queue and runs a processor function that simulates message delivery.
+- **Reply Logic**: When a mock reply occurs, the system updates the delivery record to `REPLIED` and cancels future jobs (both in Postgres and Redis using BullMQ `.remove()`).
+- **Redis State**: Delayed jobs are stored in Redis as sorted sets, retrievable via `getDelayed()`.
+
+This architecture allows future integration with **rate-limited real APIs** by simply replacing the mock processor logic.
 
 ---
 
@@ -138,24 +109,6 @@ Access:
 ```
 
 ---
-
-## Initial Setup Plan
-
-1. Set up Docker Compose to orchestrate PostgreSQL, Redis, Client, Server, and Worker containers.
-2. Bootstrap Express backend and Next.js frontend.
-3. Build core functionality:
-   - Mock LinkedIn authentication flow.
-   - CSV prospect upload and Zod-based validation.
-   - Sequence builder to define multi-step messaging plans.
-   - Background job scheduling with BullMQ and robust rate-limiting logic.
-   - Dashboard to monitor messaging status and replies.
-4. Deployment Plan:
-   - All services (backend, frontend, worker, Redis, PostgreSQL) will be containerized.
-   - The full system will be deployed into a **single AWS EC2 instance** using **Docker Compose**.
-   - Vercel deployment for the frontend **may** be considered additionally if time permits.
-5. Documentation:
-   - Prepare architecture diagrams and technical explanations in the final README.
-   - Explain real-world LinkedIn Graph API integration possibilities (separate section below).
 
 ## 🙋 Author
 
