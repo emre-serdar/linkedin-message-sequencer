@@ -81,6 +81,35 @@ This architecture allows future integration with **rate-limited real APIs** by s
 
 ---
 
+## 🧠 Why Redis + BullMQ?
+BullMQ (built on Redis) was chosen for job scheduling due to the following benefits:
+
+✅ Why Redis?
+- Speed: In-memory store enables fast real-time queue operations.
+
+- Delayed Jobs: Sorted sets in Redis naturally support scheduling with timestamps.
+
+- Scalability: Redis works well with multiple workers and distributed systems.
+
+✅ Why BullMQ?
+- Job Scheduling: Built-in support for delayed, recurring, and retryable jobs.
+
+- Persistence: Jobs survive restarts; not lost like in-memory queues.
+
+- Monitoring: Easy access to job state — pending, active, failed, completed — via API or Arena UI.
+
+- Decoupling: The producer/consumer model helps keep the API stateless and scalable.
+
+## ⚖️ Trade-Offs
+| Trade-Off    | Explanation                        | 
+|--------------|------------------------------------|
+| Redis memory usage     | Large queues may need memory tuning or pruning strategies.
+| No exactly-once guarantee  | BullMQ ensures at-least-once delivery — job deduplication must be implemented if needed.| 
+| Rate-limiting required manually      | External APIs (like LinkedIn) may require custom throttling logic on top of BullMQ.| 
+| Puppeteer adds latency | 	Validating each profile using Puppeteer adds ~1500ms, which can be too slow at scale — this is better suited for background async processing in production. |
+
+---
+
 ## 🧪 Local Setup
 
 ```bash
